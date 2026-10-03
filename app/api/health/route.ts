@@ -1,10 +1,19 @@
-import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
 
 export async function GET() {
-  return NextResponse.json({
-    service: "taskcash",
-    status: "ok",
-    environment: process.env.NODE_ENV ?? "development",
-    timestamp: new Date().toISOString(),
-  });
+  try {
+    const result = await sql`select now() as database_time`;
+
+    return Response.json({
+      service: "taskcash",
+      status: "ok",
+      database: "connected",
+      databaseTime: result[0]?.database_time ?? null,
+    });
+  } catch {
+    return Response.json(
+      { service: "taskcash", status: "degraded", database: "unavailable" },
+      { status: 503 },
+    );
+  }
 }
