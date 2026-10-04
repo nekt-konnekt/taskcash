@@ -35,6 +35,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [busyTask, setBusyTask] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [bankName, setBankName] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
 
   async function load() {
     setLoading(true);
@@ -104,6 +108,43 @@ export default function Home() {
     }
   }
 
+  async function requestWithdrawal() {
+    setWithdrawBusy(true);
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/withdrawals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amountMinor: Number(available),
+          destination: { bankName, accountName, accountNumber },
+        }),
+      });
+      const data = await response.json();
+
+      if (response.status === 401) {
+        window.location.href = "/auth";
+        return;
+      }
+
+      if (!response.ok) {
+        setNotice(data.error ?? "Withdrawal could not be requested.");
+        return;
+      }
+
+      setNotice("Withdrawal request submitted. It is pending review. No money has been sent yet.");
+      setBankName("");
+      setAccountName("");
+      setAccountNumber("");
+      await load();
+    } catch {
+      setNotice("Something went wrong. Try again.");
+    } finally {
+      setWithdrawBusy(false);
+    }
+  }
+
   const available = wallet?.available_minor ?? 0;
   const pending = wallet?.pending_minor ?? 0;
   const earned = wallet?.lifetime_earned_minor ?? 0;
@@ -159,6 +200,58 @@ export default function Home() {
       </section>
 
       {notice && <div className="notice" role="status">{notice}</div>}
+
+      {authenticated && (
+        <section className="task-section" id="withdraw">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">CASH OUT</p>
+              <h2>Withdraw your balance</h2>
+            </div>
+            <span className="task-count">Minimum ₦50</span>
+          </div>
+
+          <div className="task-card">
+            <div className="task-body">
+              <div className="task-meta">
+                <span>Bank transfer</span>
+                <span>Demo review</span>
+              </div>
+              <h3>{naira(available)} available</h3>
+              <p>No money is sent yet. This MVP creates a withdrawal request for review.</p>
+              <div className="withdraw-fields">
+                <input
+                  aria-label="Bank name"
+                  placeholder="Bank name"
+                  value={bankName}
+                  onChange={(event) => setBankName(event.target.value)}
+                />
+                <input
+                  aria-label="Account name"
+                  placeholder="Account name"
+                  value={accountName}
+                  onChange={(event) => setAccountName(event.target.value)}
+                />
+                <input
+                  aria-label="Account number"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="10-digit account number"
+                  value={accountNumber}
+                  onChange={(event) => setAccountNumber(event.target.value.replace(/\D/g, "").slice(0, 10))}
+                />
+                <button
+                  className="task-button"
+                  disabled={withdrawBusy || Number(available) < 5000}
+                  onClick={() => void requestWithdrawal()}
+                >
+                  {withdrawBusy ? "Submitting..." : "Request withdrawal"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="task-section" id="tasks">
         <div className="section-heading">
