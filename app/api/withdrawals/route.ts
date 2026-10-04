@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   if (!Number.isInteger(amountMinor) || amountMinor < MIN_WITHDRAWAL_MINOR) {
     return Response.json({ error: "Minimum withdrawal is ₦50.00" }, { status: 400 });
   }
-  if (!/^\\d{10}$/.test(destination.accountNumber ?? "")) {
+  if (!/^\d{10}$/.test(destination.accountNumber ?? "")) {
     return Response.json({ error: "Enter a valid 10-digit Nigerian bank account number" }, { status: 400 });
   }
   if (!destination.bankName?.trim() || !destination.accountName?.trim()) {
