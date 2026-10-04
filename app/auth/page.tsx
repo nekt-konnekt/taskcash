@@ -23,7 +23,7 @@ export default function AuthPage() {
           : await authClient.signUp.email({ email, password, name });
 
       if (result.error) {
-        setMessage(result.error.message);
+        setMessage(result.error.message ?? "Authentication failed.");
         return;
       }
 
