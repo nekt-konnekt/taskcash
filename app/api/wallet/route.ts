@@ -2,7 +2,9 @@ import { auth } from "@/lib/auth/server";
 import { sql } from "@/lib/db";
 
 export async function GET() {
-  const { session, user } = await auth.getSession();
+  const { data } = await auth.getSession();
+  const session = data?.session;
+  const user = data?.user;
 
   if (!session || !user) {
     return Response.json({ error: "Authentication required" }, { status: 401 });
