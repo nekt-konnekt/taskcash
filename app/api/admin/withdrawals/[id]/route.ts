@@ -25,19 +25,19 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const [rows] = await sql.transaction([
-      sql\`
+      sql`
         with target as (
           select id, user_id, amount_minor, currency
           from public.withdrawals
-          where id = \${id}
+          where id = ${id}
             and status = 'pending'
           limit 1
         ),
         changed as (
           update public.withdrawals w
-          set status = \${body.action === "approve" ? "processing" : "cancelled"},
+          set status = ${body.action === "approve" ? "processing" : "cancelled"},
               updated_at = now(),
-              processed_at = case when \${body.action === "cancel"} then now() else null end
+              processed_at = case when ${body.action === "cancel"} then now() else null end
           from target t
           where w.id = t.id
           returning w.id, w.user_id, w.amount_minor, w.currency, w.status
@@ -47,7 +47,7 @@ export async function POST(request: Request, { params }: Params) {
           set available_minor = w.available_minor + c.amount_minor,
               updated_at = now()
           from changed c
-          where \${body.action === "cancel"}
+          where ${body.action === "cancel"}
             and w.user_id = c.user_id
           returning w.user_id
         ),
@@ -61,13 +61,13 @@ export async function POST(request: Request, { params }: Params) {
             'withdrawal_reversal:' || id::text, 'Cancelled withdrawal returned to wallet',
             '{"source":"taskcash_mvp"}'::jsonb
           from changed
-          where \${body.action === "cancel"}
+          where ${body.action === "cancel"}
           on conflict (reference) do nothing
           returning withdrawal_id
         )
         select id, user_id, amount_minor, currency, status
         from changed
-      \`,
+      `,
     ]);
 
     const row = rows[0];
