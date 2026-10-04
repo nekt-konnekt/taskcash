@@ -14,102 +14,115 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid conversion payload" }, { status: 400 });
     }
 
-    const userId = conversion.userExternalId;
-    const providerSlug = "mock";
+    const status = conversion.status === "approved" ? "approved" : "pending";
+    const advertiserRevenueMinor = Math.round(conversion.advertiserValue * 100);
 
-    await sql`
-      insert into public.offer_networks (name, provider_key, status)
-      values ('Mock Provider', ${providerSlug}, 'active')
-      on conflict (provider_key) do update
-        set updated_at = now()
-    `;
+    const [rows] = await sql.transaction([
+      sql`
+        with inserted as (
+          insert into public.task_completions (
+            task_id,
+            user_id,
+            external_completion_id,
+            status,
+            advertiser_revenue_minor,
+            user_reward_minor,
+            currency,
+            metadata
+          )
+          select
+            t.id,
+            ${conversion.userExternalId},
+            ${conversion.externalConversionId},
+            ${status},
+            ${advertiserRevenueMinor},
+            t.user_reward_minor,
+            t.currency,
+            ${JSON.stringify(conversion.rawPayload ?? {})}
+          from public.tasks t
+          join public.offer_networks n on n.id = t.network_id
+          where n.provider_key = 'mock'
+            and t.external_task_id = ${conversion.externalOfferId}
+          limit 1
+          on conflict (task_id, user_id, external_completion_id) do nothing
+          returning id, status, user_id, user_reward_minor, currency
+        ),
+        wallet_init as (
+          insert into public.wallets (user_id, currency)
+          select user_id, currency from inserted
+          on conflict (user_id) do nothing
+          returning user_id
+        ),
+        ledger_insert as (
+          insert into public.ledger_entries (
+            user_id,
+            completion_id,
+            entry_type,
+            direction,
+            amount_minor,
+            currency,
+            reference,
+            description
+          )
+          select
+            user_id,
+            id,
+            'task_reward',
+            'credit',
+            user_reward_minor,
+            currency,
+            'task_reward:' || id::text,
+            'Task reward'
+          from inserted
+          where status = 'approved'
+          on conflict (reference) do nothing
+          returning id
+        ),
+        wallet_update as (
+          update public.wallets w
+          set pending_minor = w.pending_minor +
+                case when i.status = 'pending' then i.user_reward_minor else 0 end,
+              available_minor = w.available_minor +
+                case when i.status = 'approved' then i.user_reward_minor else 0 end,
+              lifetime_earned_minor = w.lifetime_earned_minor +
+                case when i.status = 'approved' then i.user_reward_minor else 0 end,
+              updated_at = now()
+          from inserted i
+          where w.user_id = i.user_id
+          returning w.user_id
+        )
+        select id, status, user_id, user_reward_minor, currency
+        from inserted
+      `,
+    ]);
 
-    const tasks = await sql`
-      select t.id, t.user_reward_minor, t.currency
-      from public.tasks t
-      join public.offer_networks n on n.id = t.network_id
-      where n.provider_key = ${providerSlug}
-        and t.external_task_id = ${conversion.externalOfferId}
-      limit 1
-    `;
-
-    const task = tasks[0];
-
-    if (!task) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
-    }
-
-    const completions = await sql`
-      insert into public.task_completions (
-        task_id,
-        user_id,
-        external_completion_id,
-        status,
-        advertiser_revenue_minor,
-        user_reward_minor,
-        currency,
-        metadata
-      )
-      values (
-        ${task.id},
-        ${userId},
-        ${conversion.externalConversionId},
-        ${conversion.status === "approved" ? "approved" : "pending"},
-        ${Math.round(conversion.advertiserValue * 100)},
-        ${task.user_reward_minor},
-        ${task.currency},
-        ${JSON.stringify(conversion.rawPayload ?? {})}
-      )
-      on conflict (task_id, user_id, external_completion_id)
-      do update set status = excluded.status
-      returning id, status, user_id, user_reward_minor, currency
-    `;
-
-    const row = completions[0];
+    const row = rows[0];
 
     if (!row) {
-      return NextResponse.json({ error: "Unable to record conversion" }, { status: 503 });
-    }
-
-    await sql`
-      insert into public.wallets (user_id, currency)
-      values (${row.user_id}, ${row.currency})
-      on conflict (user_id) do nothing
-    `;
-
-    if (row.status === "pending") {
-      await sql`
-        update public.wallets
-        set pending_minor = pending_minor + ${row.user_reward_minor},
-            updated_at = now()
-        where user_id = ${row.user_id}
-      `;
-    } else if (row.status === "approved") {
-      const reference = `task_reward:${row.id}`;
-
-      await sql`
-        insert into public.ledger_entries (
-          user_id, completion_id, entry_type, direction,
-          amount_minor, currency, reference, description
-        )
-        values (
-          ${row.user_id}, ${row.id}, 'task_reward', 'credit',
-          ${row.user_reward_minor}, ${row.currency}, ${reference}, 'Task reward'
-        )
-        on conflict (reference) do nothing
+      const existing = await sql`
+        select id, status, user_id, user_reward_minor, currency
+        from public.task_completions
+        where user_id = ${conversion.userExternalId}
+          and external_completion_id = ${conversion.externalConversionId}
+        order by completed_at desc
+        limit 1
       `;
 
-      await sql`
-        update public.wallets
-        set available_minor = available_minor + ${row.user_reward_minor},
-            lifetime_earned_minor = lifetime_earned_minor + ${row.user_reward_minor},
-            updated_at = now()
-        where user_id = ${row.user_id}
-      `;
+      if (!existing[0]) {
+        return NextResponse.json({ error: "Task not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        idempotent: true,
+        status: existing[0].status,
+        completionId: existing[0].id,
+      });
     }
 
     return NextResponse.json({
       ok: true,
+      idempotent: false,
       status: row.status,
       completionId: row.id,
     });
