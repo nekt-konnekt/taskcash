@@ -11,14 +11,14 @@ export async function GET() {
   const user = data?.user;
   if (!user) return Response.json({ error: "Authentication required" }, { status: 401 });
   try {
-    const withdrawals = await sql\`
+    const withdrawals = await sql`
       select id, amount_minor, fee_minor, net_amount_minor, currency, method, status,
              destination, requested_at, processed_at, failure_reason
       from public.withdrawals
-      where user_id = \${user.id}
+      where user_id = ${user.id}
       order by requested_at desc
       limit 20
-    \`;
+    `;
     return Response.json({ withdrawals });
   } catch {
     return Response.json({ error: "Unable to load withdrawals" }, { status: 503 });
@@ -49,19 +49,19 @@ export async function POST(request: Request) {
 
   try {
     const [rows] = await sql.transaction([
-      sql\`
+      sql`
         with debited as (
           update public.wallets
-          set available_minor = available_minor - \${amountMinor}, updated_at = now()
-          where user_id = \${user.id} and available_minor >= \${amountMinor}
+          set available_minor = available_minor - ${amountMinor}, updated_at = now()
+          where user_id = ${user.id} and available_minor >= ${amountMinor}
           returning user_id, currency
         ),
         created as (
           insert into public.withdrawals (
             user_id, amount_minor, fee_minor, net_amount_minor, currency, method, status, destination
           )
-          select user_id, \${amountMinor}, \${WITHDRAWAL_FEE_MINOR}, \${amountMinor - WITHDRAWAL_FEE_MINOR},
-                 currency, 'bank', 'pending', \${JSON.stringify({
+          select user_id, ${amountMinor}, ${WITHDRAWAL_FEE_MINOR}, ${amountMinor - WITHDRAWAL_FEE_MINOR},
+                 currency, 'bank', 'pending', ${JSON.stringify({
                    bankName: destination.bankName.trim(),
                    accountNumber: destination.accountNumber,
                    accountName: destination.accountName.trim(),
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
         )
         select id, amount_minor, fee_minor, net_amount_minor, currency, status, requested_at
         from created
-      \`,
+      `,
     ]);
 
     const row = rows[0];
