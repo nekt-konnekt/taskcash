@@ -86,7 +86,8 @@ export async function POST(request: Request) {
     const row = rows[0];
     if (!row) return Response.json({ error: "Insufficient available balance" }, { status: 400 });
     return Response.json({ ok: true, withdrawal: row, message: "Withdrawal request submitted for review." });
-  } catch {
+  } catch (error) {
+    console.error("withdrawal_request_failed", error);
     return Response.json({ error: "Unable to create withdrawal request" }, { status: 503 });
   }
 }
